@@ -177,7 +177,59 @@ class TetrisAI:
             score += 10000
         
         return score
-    
+
+    def evaluate_board(self, board):
+        """评估一个棋盘状态的得分（分数越低越好），用于下一个方块的 look-ahead"""
+        score = 0
+        column_heights = self.get_column_heights(board)
+        total_height = sum(column_heights)
+        score += total_height * 5
+        holes = self.count_holes(board)
+        score += holes * 80
+        complete_lines = self.count_complete_lines(board)
+        score -= complete_lines * 400
+        bumpiness = self.calculate_bumpiness(board)
+        score += bumpiness * 3
+        if self.would_cause_game_over(board):
+            score += 10000
+        return score
+
+    def get_best_score_for_piece(self, board, piece):
+        """在给定棋盘上放置该方块，返回能得到的最好得分（越低越好）"""
+        best_score = float('inf')
+        shape = piece.shape
+        for rotation in range(4):
+            rotated_shape = shape
+            for _ in range(rotation):
+                rows, cols = len(rotated_shape), len(rotated_shape[0])
+                rotated = [[0] * rows for _ in range(cols)]
+                for r in range(rows):
+                    for c in range(cols):
+                        rotated[c][rows - 1 - r] = rotated_shape[r][c]
+                rotated_shape = rotated
+            shape_w, shape_h = len(rotated_shape[0]), len(rotated_shape)
+            for x in range(-shape_w + 1, GRID_WIDTH):
+                valid_x = all(0 <= x + c < GRID_WIDTH for c in range(shape_w))
+                if not valid_x:
+                    continue
+                y = 0
+                while y <= GRID_HEIGHT - shape_h:
+                    positions = self.get_piece_positions(piece.shape, x, y, rotation)
+                    valid = all(0 <= pos_y < GRID_HEIGHT and 0 <= pos_x < GRID_WIDTH and not board[pos_y][pos_x] for pos_x, pos_y in positions)
+                    if not valid:
+                        break
+                    next_positions = self.get_piece_positions(piece.shape, x, y + 1, rotation)
+                    at_bottom = any(pos_y >= GRID_HEIGHT or (0 <= pos_y < GRID_HEIGHT and board[pos_y][pos_x]) for pos_x, pos_y in next_positions)
+                    if at_bottom:
+                        temp_board = [row[:] for row in board]
+                        for pos_x, pos_y in positions:
+                            if 0 <= pos_y < GRID_HEIGHT and 0 <= pos_x < GRID_WIDTH:
+                                temp_board[pos_y][pos_x] = 1
+                        best_score = min(best_score, self.evaluate_board(temp_board))
+                        break
+                    y += 1
+        return best_score if best_score != float('inf') else 10000
+
     def get_column_heights(self, board):
         """获取每列的高度"""
         heights = []
@@ -334,12 +386,19 @@ class TetrisAI:
                 if y < 0:
                     continue
                 
-                # 评估这个位置
+                # 评估这个位置（当前方块）
                 score = self.evaluate_position(piece, x, y, rotation)
+                # 考虑下一个方块：在放置当前方块后的棋盘上，下一个方块能拿到的最好分数
+                temp_board = [row[:] for row in self.game.board]
+                for pos_x, pos_y in self.get_piece_positions(piece.shape, x, y, rotation):
+                    if 0 <= pos_y < GRID_HEIGHT and 0 <= pos_x < GRID_WIDTH:
+                        temp_board[pos_y][pos_x] = 1
+                next_best = self.get_best_score_for_piece(temp_board, self.game.next_piece)
+                total_score = score + 0.5 * next_best
                 positions_evaluated += 1
-                
-                if score < best_score:
-                    best_score = score
+
+                if total_score < best_score:
+                    best_score = total_score
                     best_x = x
                     best_y = y
                     best_rotation = rotation
@@ -544,8 +603,9 @@ class TetrisGame:
             grid_rect.height
         )
         
-        # 绘制下一个方块预览
-        next_text = self.font.render("下一个:", True, WHITE)
+        # 绘制下一个方块预览（AI 启用时标注「AI会参考」）
+        next_label = "下一个 (AI会参考):" if self.ai.ai_enabled else "下一个:"
+        next_text = self.font.render(next_label, True, WHITE)
         self.screen.blit(next_text, (sidebar_rect.left, sidebar_rect.top))
         
         # 绘制下一个方块
