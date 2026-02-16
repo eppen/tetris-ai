@@ -46,8 +46,16 @@ SHAPES = [
 # 方块颜色
 SHAPE_COLORS = [CYAN, YELLOW, MAGENTA, ORANGE, BLUE, GREEN, RED]
 
-# 最高分保存文件（与脚本同目录）
-HIGH_SCORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tetris_highscore.txt")
+# 最高分保存文件（开发时与脚本同目录，打包后使用用户目录避免 .app 内不可写）
+if getattr(sys, "frozen", False):
+    _score_dir = os.path.join(os.path.expanduser("~"), ".tetris_ai")
+    try:
+        os.makedirs(_score_dir, exist_ok=True)
+    except OSError:
+        _score_dir = os.path.dirname(sys.executable)
+else:
+    _score_dir = os.path.dirname(os.path.abspath(__file__))
+HIGH_SCORE_FILE = os.path.join(_score_dir, "tetris_highscore.txt")
 
 
 def get_chinese_font(size, bold=False):
