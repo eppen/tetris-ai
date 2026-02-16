@@ -11,6 +11,14 @@ import time
 import os
 from pygame.locals import *
 
+# 破纪录时输入名字用（标准库，打包兼容）
+try:
+    import tkinter as _tk
+    from tkinter import simpledialog as _simpledialog
+except ImportError:
+    _tk = None
+    _simpledialog = None
+
 # 游戏常量
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -503,34 +511,65 @@ class TetrisGame:
         
         self.ai = TetrisAI(self)
         self.high_score = 0
+        self.high_score_name = ""
         self._load_high_score()
         self.is_new_high = False
         self.reset_game()
 
     def _load_high_score(self):
-        """从文件加载最高分"""
+        """从文件加载最高分与名字（兼容旧版仅存分数）"""
+        self.high_score_name = ""
         try:
             if os.path.exists(HIGH_SCORE_FILE):
                 with open(HIGH_SCORE_FILE, "r", encoding="utf-8") as f:
-                    self.high_score = max(0, int(f.read().strip()))
+                    lines = f.read().strip().splitlines()
+                if lines:
+                    self.high_score = max(0, int(lines[0].strip()))
+                    if len(lines) >= 2 and lines[1].strip():
+                        self.high_score_name = lines[1].strip()[:20]
         except (ValueError, OSError):
             pass
 
-    def _save_high_score(self):
-        """将最高分保存到文件"""
+    def _save_high_score(self, name=""):
+        """将最高分与名字保存到文件"""
         try:
             with open(HIGH_SCORE_FILE, "w", encoding="utf-8") as f:
-                f.write(str(self.high_score))
+                f.write(str(self.high_score) + "\n")
+                f.write((name or "玩家")[:20] + "\n")
         except OSError:
             pass
 
+    def _ask_high_score_name(self):
+        """破纪录时弹出输入框让玩家输入名字，返回输入内容或默认'玩家'"""
+        name = "玩家"
+        if _tk and _simpledialog:
+            root = _tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            try:
+                entered = _simpledialog.askstring(
+                    "得分新高",
+                    "请输入你的名字（用于记录）:",
+                    parent=root,
+                    initialvalue=self.high_score_name or "玩家",
+                )
+                if entered and entered.strip():
+                    name = entered.strip()[:20]
+            finally:
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+        return name
+
     def _set_game_over(self):
-        """标记游戏结束，若得分创新高则更新并保存最高分"""
+        """标记游戏结束，若得分创新高则弹窗输入名字并保存"""
         self.game_over = True
         if self.score > self.high_score:
             self.is_new_high = True
             self.high_score = self.score
-            self._save_high_score()
+            self.high_score_name = self._ask_high_score_name()
+            self._save_high_score(self.high_score_name)
         else:
             self.is_new_high = False
 
@@ -688,7 +727,10 @@ class TetrisGame:
         score_text = self.font.render(f"分数: {self.score}", True, WHITE)
         self.screen.blit(score_text, (sidebar_rect.left, y_offset))
 
-        high_score_text = self.font.render(f"最高分: {self.high_score}", True, YELLOW)
+        high_score_display = f"最高分: {self.high_score}"
+        if self.high_score_name:
+            high_score_display += f" ({self.high_score_name})"
+        high_score_text = self.font.render(high_score_display, True, YELLOW)
         self.screen.blit(high_score_text, (sidebar_rect.left, y_offset + 20))
 
         level_text = self.font.render(f"等级: {self.level}", True, WHITE)
@@ -738,7 +780,8 @@ class TetrisGame:
                             (SCREEN_WIDTH // 2 - score_text.get_width() // 2,
                              SCREEN_HEIGHT // 2 - 40))
             if self.is_new_high:
-                new_high_text = self.font.render("得分新高! 已保存", True, YELLOW)
+                new_high_str = f"得分新高! 已保存 - {self.high_score_name}"
+                new_high_text = self.font.render(new_high_str, True, YELLOW)
                 self.screen.blit(new_high_text,
                                 (SCREEN_WIDTH // 2 - new_high_text.get_width() // 2,
                                  SCREEN_HEIGHT // 2 + 10))
