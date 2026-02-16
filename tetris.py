@@ -46,6 +46,9 @@ SHAPES = [
 # 方块颜色
 SHAPE_COLORS = [CYAN, YELLOW, MAGENTA, ORANGE, BLUE, GREEN, RED]
 
+# 最高分保存文件（与脚本同目录）
+HIGH_SCORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tetris_highscore.txt")
+
 
 def get_chinese_font(size, bold=False):
     """获取支持中文的字体，避免显示成方块或乱码"""
@@ -491,8 +494,38 @@ class TetrisGame:
         self.small_font = get_chinese_font(14)        # 操作说明等小字
         
         self.ai = TetrisAI(self)
+        self.high_score = 0
+        self._load_high_score()
+        self.is_new_high = False
         self.reset_game()
-        
+
+    def _load_high_score(self):
+        """从文件加载最高分"""
+        try:
+            if os.path.exists(HIGH_SCORE_FILE):
+                with open(HIGH_SCORE_FILE, "r", encoding="utf-8") as f:
+                    self.high_score = max(0, int(f.read().strip()))
+        except (ValueError, OSError):
+            pass
+
+    def _save_high_score(self):
+        """将最高分保存到文件"""
+        try:
+            with open(HIGH_SCORE_FILE, "w", encoding="utf-8") as f:
+                f.write(str(self.high_score))
+        except OSError:
+            pass
+
+    def _set_game_over(self):
+        """标记游戏结束，若得分创新高则更新并保存最高分"""
+        self.game_over = True
+        if self.score > self.high_score:
+            self.is_new_high = True
+            self.high_score = self.score
+            self._save_high_score()
+        else:
+            self.is_new_high = False
+
     def reset_game(self):
         """重置游戏状态"""
         self.board = [[0 for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
@@ -505,7 +538,8 @@ class TetrisGame:
         self.fall_speed = 0.5  # 方块下落速度（秒）
         self.fall_time = 0
         self.ai.disable()  # 重置时禁用AI
-        
+        self.is_new_high = False
+
     def draw_grid(self):
         """绘制游戏网格"""
         # 绘制游戏区域背景
@@ -645,15 +679,18 @@ class TetrisGame:
         
         score_text = self.font.render(f"分数: {self.score}", True, WHITE)
         self.screen.blit(score_text, (sidebar_rect.left, y_offset))
-        
+
+        high_score_text = self.font.render(f"最高分: {self.high_score}", True, YELLOW)
+        self.screen.blit(high_score_text, (sidebar_rect.left, y_offset + 20))
+
         level_text = self.font.render(f"等级: {self.level}", True, WHITE)
-        self.screen.blit(level_text, (sidebar_rect.left, y_offset + 40))
-        
+        self.screen.blit(level_text, (sidebar_rect.left, y_offset + 50))
+
         lines_text = self.font.render(f"消除行数: {self.lines_cleared}", True, WHITE)
-        self.screen.blit(lines_text, (sidebar_rect.left, y_offset + 80))
+        self.screen.blit(lines_text, (sidebar_rect.left, y_offset + 90))
         
         # 绘制AI状态
-        y_offset += 140
+        y_offset += 150
         ai_status = "AI: 启用" if self.ai.ai_enabled else "AI: 禁用"
         ai_color = GREEN if self.ai.ai_enabled else RED
         ai_text = self.small_font.render(ai_status, True, ai_color)
@@ -686,16 +723,20 @@ class TetrisGame:
             game_over_text = self.font.render("游戏结束!", True, RED)
             score_text = self.font.render(f"最终分数: {self.score}", True, WHITE)
             restart_text = self.small_font.render("按 R 键重新开始", True, WHITE)
-            
-            self.screen.blit(game_over_text, 
-                           (SCREEN_WIDTH // 2 - game_over_text.get_width() // 2, 
-                            SCREEN_HEIGHT // 2 - 60))
-            self.screen.blit(score_text, 
-                           (SCREEN_WIDTH // 2 - score_text.get_width() // 2, 
-                            SCREEN_HEIGHT // 2))
-            self.screen.blit(restart_text, 
-                           (SCREEN_WIDTH // 2 - restart_text.get_width() // 2, 
-                            SCREEN_HEIGHT // 2 + 60))
+            self.screen.blit(game_over_text,
+                            (SCREEN_WIDTH // 2 - game_over_text.get_width() // 2,
+                             SCREEN_HEIGHT // 2 - 80))
+            self.screen.blit(score_text,
+                            (SCREEN_WIDTH // 2 - score_text.get_width() // 2,
+                             SCREEN_HEIGHT // 2 - 40))
+            if self.is_new_high:
+                new_high_text = self.font.render("得分新高! 已保存", True, YELLOW)
+                self.screen.blit(new_high_text,
+                                (SCREEN_WIDTH // 2 - new_high_text.get_width() // 2,
+                                 SCREEN_HEIGHT // 2 + 10))
+            self.screen.blit(restart_text,
+                            (SCREEN_WIDTH // 2 - restart_text.get_width() // 2,
+                             SCREEN_HEIGHT // 2 + (70 if self.is_new_high else 50)))
     
     def check_collision(self, piece, x_offset=0, y_offset=0):
         """检查碰撞"""
@@ -824,11 +865,11 @@ class TetrisGame:
         self.clear_lines()
         self.current_piece = self.next_piece
         self.next_piece = Tetromino()
-        
+
         # 检查游戏是否结束
         if self.check_collision(self.current_piece):
-            self.game_over = True
-    
+            self._set_game_over()
+
     def update(self, dt):
         """更新游戏状态"""
         if self.game_over:
@@ -849,8 +890,8 @@ class TetrisGame:
                 
                 # 检查游戏是否结束
                 if self.check_collision(self.current_piece):
-                    self.game_over = True
-    
+                    self._set_game_over()
+
     def draw(self):
         """绘制游戏画面"""
         self.screen.fill(BLACK)
